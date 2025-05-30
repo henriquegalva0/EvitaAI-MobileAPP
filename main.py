@@ -5,30 +5,142 @@ from kivy.uix.boxlayout import BoxLayout
 from kivy.uix.textinput import TextInput
 from kivy.uix.behaviors import ButtonBehavior
 from kivy.clock import Clock
-from kivy.graphics import Color, Rectangle, RoundedRectangle
+from kivy.graphics import Color, Rectangle, RoundedRectangle, Ellipse, PushMatrix, PopMatrix, Rotate
 from kivy.uix.image import Image
 from kivy.uix.widget import Widget
 from kivy.core.text import LabelBase
 from kivy.uix.floatlayout import FloatLayout
 from kivy.uix.scrollview import ScrollView
-from consulta_api import consultar_analise_gpt
+
+from consulta_api_classficacao import classificacao_analise_gpt
+from consulta_api_relatorio import consultar_analise_gpt_relatorio
+import math
 
 LabelBase.register(name='Roboto-Thin', fn_regular='fonts/Roboto-Thin.ttf')
+
+class LoadingSpinner(Widget):
+    def __init__(self, **kwargs):
+        super().__init__(**kwargs)
+        self.size_hint = (None, None)
+        self.size = (60, 60)
+        self.angle = 0
+        
+        with self.canvas:
+            PushMatrix()
+            self.rotate = Rotate()
+            self.rotate.angle = 0
+            self.rotate.origin = (30, 30)  # Center of the 60x60 widget
+            
+            # Create multiple dots for spinner effect
+            Color(0.4, 0.6, 0.9, 1)
+            self.dot1 = Ellipse(pos=(45, 25), size=(10, 10))
+            Color(0.4, 0.6, 0.9, 0.8)
+            self.dot2 = Ellipse(pos=(35, 45), size=(8, 8))
+            Color(0.4, 0.6, 0.9, 0.6)
+            self.dot3 = Ellipse(pos=(15, 35), size=(6, 6))
+            Color(0.4, 0.6, 0.9, 0.4)
+            self.dot4 = Ellipse(pos=(25, 15), size=(4, 4))
+            
+            PopMatrix()
+            
+        self.bind(pos=self._update_spinner, size=self._update_spinner)
+        self.animation_event = None
+        
+    def _update_spinner(self, *args):
+        # Update rotation origin when position changes
+        self.rotate.origin = (self.x + 30, self.y + 30)
+        
+        # Update dot positions relative to widget position
+        self.dot1.pos = (self.x + 45, self.y + 25)
+        self.dot2.pos = (self.x + 35, self.y + 45)
+        self.dot3.pos = (self.x + 15, self.y + 35)
+        self.dot4.pos = (self.x + 25, self.y + 15)
+        
+    def start_animation(self):
+        if self.animation_event is None:
+            self.animation_event = Clock.schedule_interval(self._animate, 1/30.0)  # 30 FPS
+        
+    def stop_animation(self):
+        if self.animation_event:
+            self.animation_event.cancel()
+            self.animation_event = None
+            
+    def _animate(self, dt):
+        self.angle += 5  # Rotate 5 degrees per frame
+        if self.angle >= 360:
+            self.angle = 0
+        self.rotate.angle = self.angle
+
+class LoadingOverlay(FloatLayout):
+    def __init__(self, **kwargs):
+        super().__init__(**kwargs)
+        
+        # Semi-transparent background
+        with self.canvas.before:
+            Color(0, 0, 0, 0.7)  # Dark overlay
+            self.bg_rect = Rectangle(pos=self.pos, size=self.size)
+            
+        self.bind(pos=self._update_bg, size=self._update_bg)
+        
+        # Loading content
+        loading_box = BoxLayout(
+            orientation='vertical',
+            size_hint=(None, None),
+            size=(200, 150),
+            pos_hint={'center_x': 0.5, 'center_y': 0.5},
+            spacing=20
+        )
+        
+        # Spinner container
+        spinner_container = Widget(
+            size_hint=(None, None),
+            size=(60, 60),
+            pos_hint={'center_x': 0.5}
+        )
+        
+        self.spinner = LoadingSpinner()
+        self.spinner.pos_hint = {'center_x': 0.5, 'center_y': 0.5}
+        spinner_container.add_widget(self.spinner)
+        
+        # Loading text
+        self.loading_label = Label(
+            text="Analisando...",
+            font_name='Roboto-Thin',
+            font_size=24,
+            color=(1, 1, 1, 1),
+            size_hint_y=None,
+            height=40
+        )
+        
+        loading_box.add_widget(spinner_container)
+        loading_box.add_widget(self.loading_label)
+        self.add_widget(loading_box)
+        
+    def _update_bg(self, *args):
+        self.bg_rect.pos = self.pos
+        self.bg_rect.size = self.size
+        
+    def show(self, text="Analisando..."):
+        self.loading_label.text = text
+        self.spinner.start_animation()
+        
+    def hide(self):
+        self.spinner.stop_animation()
 
 class RoundedButton(ButtonBehavior, Label):
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
 
         self.text = kwargs.get("text", "Botão")
-        self.font_size = kwargs.get("font_size", 30)
+        self.font_size = kwargs.get("font_size", 28)
         self.size_hint_y = None
         self.height = 50
         self.font_name = 'Roboto-Thin'
-        self.color = (0.925, 0.922, 0.871, 1)
-        self.radius = [20]
+        self.color = (1, 1, 1, 1)  # Pure white text
+        self.radius = [25]
 
         with self.canvas.before:
-            Color(0.843, 0.827, 0.749, 1)  # cor do botão
+            Color(0.4, 0.6, 0.9, 1)  # Clean modern blue
             self.rect = RoundedRectangle(pos=self.pos, size=self.size, radius=self.radius)
 
         self.bind(pos=self._update_rect, size=self._update_rect)
@@ -40,35 +152,34 @@ class RoundedButton(ButtonBehavior, Label):
     def on_press(self):
         self.canvas.before.clear()
         with self.canvas.before:
-            Color(0, 0, 0, 0.2)
+            Color(0.3, 0.5, 0.8, 1)  # Slightly darker on press
             self.rect = RoundedRectangle(pos=self.pos, size=self.size, radius=self.radius)
 
     def on_release(self):
         self.canvas.before.clear()
         with self.canvas.before:
-            Color(0.843, 0.827, 0.749, 1)
+            Color(0.4, 0.6, 0.9, 1)  # Restore button color
             self.rect = RoundedRectangle(pos=self.pos, size=self.size, radius=self.radius)
             
 class RoundedLabel(Label):
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
         self.font_name = 'Roboto-Thin'
-        self.color = (0.647, 0.616, 0.518, 1)
+        self.color = (0.2, 0.2, 0.2, 1)  # Dark gray text for better readability
         self.font_size = kwargs.get("font_size", 16)
         self.size_hint_y = None
         self.height = kwargs.get("height", 100)
         self.size_hint_x = kwargs.get("size_hint_x", 1)
         self.halign = 'center'
         self.valign = 'middle'
-        self.padding = [15, 15]
+        self.padding = [20, 20]
         self.markup = True
 
-        # Alinha o texto com base no tamanho do widget
         self.bind(size=self._update_text_size, texture_size=self._update_height)
 
         with self.canvas.before:
-            Color(0.925, 0.922, 0.871, 1)
-            self.rect = RoundedRectangle(pos=self.pos, size=self.size, radius=[0])
+            Color(1, 1, 1, 1)  # Pure white background for boxes
+            self.rect = RoundedRectangle(pos=self.pos, size=self.size, radius=[15])
 
         self.bind(pos=self._update_rect, size=self._update_rect)
 
@@ -77,34 +188,39 @@ class RoundedLabel(Label):
         self.rect.size = self.size
 
     def _update_text_size(self, *args):
-        self.text_size = (self.width - 30, None)  # padding aplicado, allow text to wrap
+        self.text_size = (self.width - 40, None)
 
     def _update_height(self, *args):
-        self.height = max(self.texture_size[1] + 30, 100)  # Adjust height based on content
+        self.height = max(self.texture_size[1] + 40, 100)
 
 class MyBoxLayout(FloatLayout):
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
         
         with self.canvas.before:
-            Color(0.757, 0.729, 0.631, 1) 
+            Color(0.94, 0.95, 0.96, 1)  # Slightly darker background for contrast
             self.bg_rect = Rectangle(size_hint=(1, 1))
 
         self.bind(size=self._update_bg_rect, pos=self._update_bg_rect)
-        self.spacing = 15
+        self.spacing = 20
         self.orientation = 'vertical'
-        self.size_hint = (1, 1)  # Ocupa toda a janela
-        self.pos_hint = {'top': 1}  # Alinha no topo
+        self.size_hint = (1, 1)
+        self.pos_hint = {'top': 1}
+        
+        # Track if detailed results are visible and store last analyzed site
+        self.detailed_results_visible = False
+        self.last_analyzed_site = ""
 
+        # Top bar
         self.top_bar = BoxLayout(
             orientation='horizontal',
             size_hint=(1, None),
-            height=60,
+            height=70,
             pos_hint = {'top': 1}
         )
 
         with self.top_bar.canvas.before:
-            Color(0.647, 0.616, 0.518, 1)
+            Color(1, 1, 1, 1)  # Pure white top bar
             self.top_bar_bg = Rectangle(pos=self.top_bar.pos, size=self.top_bar.size)
 
         self.top_bar.bind(pos=self.update_top_bar_bg, size=self.update_top_bar_bg)
@@ -112,68 +228,61 @@ class MyBoxLayout(FloatLayout):
         self.img = Image(
             source='img/cor_teste_evita.png',
             size_hint=(None, 1),
-            width=160,
+            width=180,
             allow_stretch=True,
             keep_ratio=True
         )
 
         self.top_bar.add_widget(self.img)
         self.top_bar.add_widget(Widget())
-
         self.add_widget(self.top_bar)
 
+        # Input field
         self.site_input = TextInput(
             multiline=False,
-            height=60,
-            size_hint=(0.67,None),
-            padding=[15, 20],
-            hint_text=' Insira um site... ',
-            hint_text_color=(0.8, 0.78, 0.7, 1),
-            foreground_color=(0.647, 0.616, 0.518, 1),
-            selection_color=(0.8, 0.78, 0.7, 0.4),
+            height=55,
+            size_hint=(0.85, None),
+            padding=[20, 18],
+            hint_text=' Digite o URL do site... ',
+            hint_text_color=(0.6, 0.6, 0.6, 1),
+            foreground_color=(0.2, 0.2, 0.2, 1),
+            selection_color=(0.4, 0.6, 0.9, 0.3),
             background_normal='',
             background_active='',
-            background_color=(0.925, 0.922, 0.871, 1),
+            background_color=(1, 1, 1, 1),
             font_name='Roboto-Thin',
-            halign = 'center'
+            font_size=18,
+            halign='center'
         )
-        self.site_input.pos_hint = {'center_x': 0.5, 'top': 0.91}
+        self.site_input.pos_hint = {'center_x': 0.5, 'top': 0.89}
         self.add_widget(self.site_input)
 
+        # Submit button
         self.submit = RoundedButton(
-            text="Submeter",
-            size_hint=(0.4, None),
-            height=50
+            text="Analisar",
+            size_hint=(0.5, None),
+            height=55
         )
-        self.submit.pos_hint = {'center_x': 0.5, 'top': 0.82}
+        self.submit.pos_hint = {'center_x': 0.5, 'top': 0.79}
         self.submit.bind(on_press=self.press)
         self.add_widget(self.submit)
 
-        self.results_layout = BoxLayout(
+        # Classification box (always visible)
+        self.classificacao_box = BoxLayout(
             orientation='vertical',
-            spacing=0,
-            size_hint=(0.9, None),
-            height=400,
-            pos_hint={'center_x': 0.5},
-            padding=[10, 10, 10, 10]
-        )
-
-        classificacao_box = BoxLayout(
-            orientation='vertical',
-            spacing=5,
-            size_hint_y=None,
-            height=100
+            spacing=8,
+            size_hint=(0.85, None),
+            height=150,
+            pos_hint={'center_x': 0.5, 'top': 0.68}
         )
 
         classificacao_title = Label(
-            text="natureza",
+            text="CLASSIFICAÇÃO",
             font_name='Roboto-Thin',
-            font_size=16,
-            color=(0.925, 0.922, 0.871, 1),
-            outline_width=2,
-            outline_color=(0.647, 0.616, 0.518, 1),
+            font_size=24,
+            color=(0.3, 0.3, 0.3, 1),
             size_hint_y=None,
-            height=20,
+            height=35,
             halign='center',
             valign='middle'
         )
@@ -181,45 +290,60 @@ class MyBoxLayout(FloatLayout):
 
         self.classificacao_scroll = ScrollView(
             size_hint=(1, None),
-            height=100,
+            height=110,
             do_scroll_x=False,
-            do_scroll_y=True
+            do_scroll_y=False
         )
         self.classificacao_label = RoundedLabel(
-            text="confiabilidade do site",
-            height=80,
-            font_size=16,
+            text="Aguardando análise...",
+            height=100,
+            font_size=28,
             size_hint_y=None
         )
         self.classificacao_scroll.add_widget(self.classificacao_label)
-        classificacao_box.add_widget(classificacao_title)
-        classificacao_box.add_widget(self.classificacao_scroll)
-        self.results_layout.add_widget(classificacao_box)
+        self.classificacao_box.add_widget(classificacao_title)
+        self.classificacao_box.add_widget(self.classificacao_scroll)
+        self.add_widget(self.classificacao_box)
 
-        self.lower_results_layout = BoxLayout(
-            orientation='horizontal',
-            spacing=15,
-            size_hint=(1, None),
-            height=350
+        # Report button (initially hidden)
+        self.relatorio_button = RoundedButton(
+            text="Relatório",
+            size_hint=(0.4, None),
+            height=50,
+            font_size=24
         )
-    
+        self.relatorio_button.pos_hint = {'center_x': 0.5, 'top': 0.48}
+        self.relatorio_button.bind(on_press=self.generate_detailed_report)
+        self.relatorio_button.opacity = 0  # Initially hidden
+        self.add_widget(self.relatorio_button)
+
+        # Detailed results layout (initially hidden)
+        self.detailed_results_layout = BoxLayout(
+            orientation='horizontal',
+            spacing=20,
+            size_hint=(0.92, None),
+            height=350,
+            pos_hint={'center_x': 0.5, 'top': 0.4},
+            padding=[15, 15, 15, 15]
+        )
+        self.detailed_results_layout.opacity = 0  # Initially hidden
+
+        # Domain box
         dominio_box = BoxLayout(
             orientation='vertical',
-            spacing=5,
+            spacing=8,
             size_hint_y=None,
-            height=350,
-            size_hint_x=0.33  # Um terço da linha
+            height=320,
+            size_hint_x=0.33
         )
 
         dominio_title = Label(
-            text="domínio",
+            text="DOMÍNIO",
             font_name='Roboto-Thin',
-            font_size=16,
-            color=(0.925, 0.922, 0.871, 1),
-            outline_width=2,
-            outline_color=(0.647, 0.616, 0.518, 1),
+            font_size=20,
+            color=(0.3, 0.3, 0.3, 1),
             size_hint_y=None,
-            height=20,
+            height=30,
             halign='center',
             valign='middle'
         )
@@ -227,13 +351,13 @@ class MyBoxLayout(FloatLayout):
 
         self.dominio_scroll = ScrollView(
             size_hint=(1, None),
-            height=320,
+            height=280,
             do_scroll_x=False,
             do_scroll_y=True
         )
         self.dominio_label = RoundedLabel(
-            text="reputação a respeito do nome do site",
-            height=320,
+            text="Clique em 'Relatório' para gerar análise detalhada",
+            height=280,
             font_size=16,
             size_hint_x=1,
             size_hint_y=None
@@ -241,25 +365,24 @@ class MyBoxLayout(FloatLayout):
         self.dominio_scroll.add_widget(self.dominio_label)
         dominio_box.add_widget(dominio_title)
         dominio_box.add_widget(self.dominio_scroll)
-        self.lower_results_layout.add_widget(dominio_box)
+        self.detailed_results_layout.add_widget(dominio_box)
 
+        # Analysis box
         justificativa_box = BoxLayout(
             orientation='vertical',
-            spacing=5,
+            spacing=8,
             size_hint_y=None,
-            height=350,
-            size_hint_x=0.33  # Um terço da linha
+            height=320,
+            size_hint_x=0.33
         )
 
         justificativa_title = Label(
-            text="justificativa",
+            text="ANÁLISE",
             font_name='Roboto-Thin',
-            font_size=16,
-            color=(0.925, 0.922, 0.871, 1),
-            outline_width=2,
-            outline_color=(0.647, 0.616, 0.518, 1),
+            font_size=20,
+            color=(0.3, 0.3, 0.3, 1),
             size_hint_y=None,
-            height=20,
+            height=30,
             halign='center',
             valign='middle'
         )
@@ -267,13 +390,13 @@ class MyBoxLayout(FloatLayout):
 
         self.justificativa_scroll = ScrollView(
             size_hint=(1, None),
-            height=320,
+            height=280,
             do_scroll_x=False,
             do_scroll_y=True
         )
         self.justificativa_label = RoundedLabel(
-            text="relatório da análise da confiabilidade do site",
-            height=320,
+            text="Clique em 'Relatório' para gerar análise detalhada",
+            height=280,
             font_size=16,
             size_hint_x=1,
             size_hint_y=None
@@ -281,25 +404,24 @@ class MyBoxLayout(FloatLayout):
         self.justificativa_scroll.add_widget(self.justificativa_label)
         justificativa_box.add_widget(justificativa_title)
         justificativa_box.add_widget(self.justificativa_scroll)
-        self.lower_results_layout.add_widget(justificativa_box)
+        self.detailed_results_layout.add_widget(justificativa_box)
 
+        # Security box
         medidas_box = BoxLayout(
             orientation='vertical',
-            spacing=5,
+            spacing=8,
             size_hint_y=None,
-            height=350,
-            size_hint_x=0.33  # Um terço da linha
+            height=320,
+            size_hint_x=0.33
         )
 
         medidas_title = Label(
-            text="dicas de segurança",
+            text="SEGURANÇA",
             font_name='Roboto-Thin',
-            font_size=16,
-            color=(0.925, 0.922, 0.871, 1),
-            outline_width=2,
-            outline_color=(0.647, 0.616, 0.518, 1),
+            font_size=20,
+            color=(0.3, 0.3, 0.3, 1),
             size_hint_y=None,
-            height=20,
+            height=30,
             halign='center',
             valign='middle'
         )
@@ -307,13 +429,13 @@ class MyBoxLayout(FloatLayout):
 
         self.medidas_scroll = ScrollView(
             size_hint=(1, None),
-            height=320,
+            height=280,
             do_scroll_x=False,
             do_scroll_y=True
         )
         self.medidas_label = RoundedLabel(
-            text="recomendações de segurança ao usuário",
-            height=320,
+            text="Clique em 'Relatório' para gerar análise detalhada",
+            height=280,
             font_size=16,
             size_hint_x=1,
             size_hint_y=None
@@ -321,74 +443,139 @@ class MyBoxLayout(FloatLayout):
         self.medidas_scroll.add_widget(self.medidas_label)
         medidas_box.add_widget(medidas_title)
         medidas_box.add_widget(self.medidas_scroll)
-        self.lower_results_layout.add_widget(medidas_box)
+        self.detailed_results_layout.add_widget(medidas_box)
 
-        self.results_layout.add_widget(self.lower_results_layout)
-        self.results_layout.pos_hint = {'center_x': 0.5, 'top': 0.6}
-        self.add_widget(self.results_layout)
+        self.add_widget(self.detailed_results_layout)
+
+        # Loading overlay (initially hidden)
+        self.loading_overlay = LoadingOverlay()
+        self.loading_overlay.opacity = 0
+        self.add_widget(self.loading_overlay)
+
+    def generate_detailed_report(self, instance):
+        """Generate detailed report by calling gerar_relatorio function"""
+        if not self.detailed_results_visible:
+            # Show detailed results and generate report
+            self.show_loading_report()
+            Clock.schedule_once(lambda dt: self._process_report_generation(), 0.1)
+        else:
+            # Hide detailed results
+            self.detailed_results_layout.opacity = 0
+            self.relatorio_button.text = "Relatório"
+            self.detailed_results_visible = False
+
+    def _process_report_generation(self):
+        """Process the report generation in background"""
+        try:
+            # Call the gerar_relatorio function with the last analyzed site
+            relatorio_data = consultar_analise_gpt_relatorio(self.last_analyzed_site)
+            
+            # Update the labels with the generated report data
+            def aplicar_estilo_relatorio(label, texto):
+                label.text = f"[color=333333FF]{texto}[/color]"
+            
+            aplicar_estilo_relatorio(self.dominio_label, relatorio_data.get('dominio', 'Dados não disponíveis'))
+            aplicar_estilo_relatorio(self.justificativa_label, relatorio_data.get('justificativa', 'Dados não disponíveis'))
+            aplicar_estilo_relatorio(self.medidas_label, relatorio_data.get('seguranca', 'Dados não disponíveis'))
+            
+            # Show the detailed results
+            self.detailed_results_layout.opacity = 1
+            self.relatorio_button.text = "Ocultar Relatório"
+            self.detailed_results_visible = True
+            
+        except Exception as e:
+            # Handle errors in report generation
+            error_message = f"Erro ao gerar relatório: {str(e)}"
+            self.dominio_label.text = f"[color=D32F2FFF]{error_message}[/color]"
+            self.justificativa_label.text = f"[color=D32F2FFF]{error_message}[/color]"
+            self.medidas_label.text = f"[color=D32F2FFF]{error_message}[/color]"
+            
+            self.detailed_results_layout.opacity = 1
+            self.relatorio_button.text = "Ocultar Relatório"
+            self.detailed_results_visible = True
+        
+        finally:
+            # Hide loading screen
+            Clock.schedule_once(lambda dt: self.hide_loading_report(), 0.2)
+
+    def show_loading_report(self):
+        """Show loading screen for report generation"""
+        self.loading_overlay.opacity = 1
+        self.loading_overlay.show("Gerando relatório...")
+        self.relatorio_button.disabled = True
+
+    def hide_loading_report(self):
+        """Hide loading screen for report generation"""
+        self.loading_overlay.opacity = 0
+        self.loading_overlay.hide()
+        self.relatorio_button.disabled = False
+
+    def show_loading(self):
+        self.loading_overlay.opacity = 1
+        self.loading_overlay.show("Analisando...")
+        self.submit.disabled = True
+
+    def hide_loading(self):
+        self.loading_overlay.opacity = 0
+        self.loading_overlay.hide()
+        self.submit.disabled = False
 
     def press(self, instance):
-        instance.background_color = (0, 0, 0, 0.2)
-        instance.color = (0.757, 0.729, 0.631, 1)
-        instance.outline_color = (0.647, 0.616, 0.518, 1)
-
-        Clock.schedule_once(lambda dt: self.processar_consulta(instance), 0.05)
+        self.show_loading()
+        instance.background_color = (0.3, 0.5, 0.8, 1)
+        instance.color = (1, 1, 1, 1)
+        Clock.schedule_once(lambda dt: self.processar_consulta(instance), 0.1)
 
     def processar_consulta(self, instance):
         site_input = self.site_input.text
+        self.last_analyzed_site = site_input  # Store the analyzed site
         self.site_input.text = ""
 
-        analise_gpt = consultar_analise_gpt(site_input)
+        try:
+            analise_gpt = classificacao_analise_gpt(site_input)
+        except:
+            analise_gpt = 0
 
         if isinstance(analise_gpt, int):
-            # Volta ao estado inicial
-            estilo_padrao = {
-                "texto": "A59D84FF",    # cor texto padrão convertida
-                "contorno": "736E5CFF"  # cor contorno padrão convertida
-            }
+            estilo_padrao = {"texto": "666666FF"}
             def aplicar_estilo_label(label, texto, estilo):
-                cor_texto = estilo.get("texto", "000000FF")
+                cor_texto = estilo.get("texto", "333333FF")
                 label.text = f"[color={cor_texto}]{texto}[/color]"
 
-            aplicar_estilo_label(self.classificacao_label, "erro na consulta", estilo_padrao)
-            aplicar_estilo_label(self.dominio_label, "reputação a respeito do nome do site", estilo_padrao)
-            aplicar_estilo_label(self.justificativa_label, "relatório da análise da confiabilidade do site", estilo_padrao)
-            aplicar_estilo_label(self.medidas_label, "recomendações de segurança ao usuário", estilo_padrao)
-
+            aplicar_estilo_label(self.classificacao_label, "Erro na consulta", estilo_padrao)
         else:
-            # Processa normalmente
             classificacao = analise_gpt.get('classificacao', 'Não disponível')
-            reputacao = analise_gpt.get('reputacao', 'Não disponível')
-            justificativa = analise_gpt.get('justificativa', 'Não disponível')
-            seguranca = analise_gpt.get('seguranca', 'Não disponível')
 
             cores_classificacao = {
-                "confiável": {
-                    "texto": "33975FFF",      # verde
-                },
-                "malicioso": {
-                    "texto": "A65C7FFF",     # vermelho suave (rosa avermelhado claro)
-                }
+                "confiável": {"texto": "2E7D32FF"},
+                "malicioso": {"texto": "D32F2FFF"}
             }
 
-            estilo = cores_classificacao.get(classificacao.lower(), {
-                "texto": "000000FF",  # padrão: preto
-            })
+            estilo = cores_classificacao.get(classificacao.lower(), {"texto": "333333FF"})
 
             def aplicar_estilo_label(label, texto, estilo):
-                cor_texto = estilo.get("texto", "000000FF")
+                cor_texto = estilo.get("texto", "333333FF")
                 label.text = f"[color={cor_texto}]{texto}[/color]"
 
             aplicar_estilo_label(self.classificacao_label, classificacao, estilo)
-            aplicar_estilo_label(self.dominio_label, reputacao, estilo)
-            aplicar_estilo_label(self.justificativa_label, justificativa, estilo)
-            aplicar_estilo_label(self.medidas_label, seguranca, estilo)
-        Clock.schedule_once(lambda dt: self.reset_button_color(instance), 0.2)
+
+        # Show the report button after analysis is complete
+        self.relatorio_button.opacity = 1
+        
+        # Reset detailed results visibility
+        self.detailed_results_layout.opacity = 0
+        self.detailed_results_visible = False
+        self.relatorio_button.text = "Relatório"
+        
+        Clock.schedule_once(lambda dt: self.finish_processing(instance), 0.2)
+
+    def finish_processing(self, button):
+        self.hide_loading()
+        self.reset_button_color(button)
 
     def reset_button_color(self, button):
-        button.background_color = (0.843, 0.827, 0.749, 1)
-        button.color = (0.925, 0.922, 0.871, 1)
-        button.outline_color = (0.700, 0.674, 0.590, 1)
+        button.background_color = (0.4, 0.6, 0.9, 1)
+        button.color = (1, 1, 1, 1)
 
     def _update_bg_rect(self, *args):
         self.bg_rect.pos = self.pos
