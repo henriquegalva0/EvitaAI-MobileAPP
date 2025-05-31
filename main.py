@@ -452,18 +452,13 @@ class MyBoxLayout(FloatLayout):
         self.loading_overlay.opacity = 0
         self.add_widget(self.loading_overlay)
 
+
     def generate_detailed_report(self, instance):
         """Generate detailed report by calling gerar_relatorio function"""
-        if not self.detailed_results_visible:
-            # Show detailed results and generate report
-            self.show_loading_report()
-            Clock.schedule_once(lambda dt: self._process_report_generation(), 0.1)
-        else:
-            # Hide detailed results
-            self.detailed_results_layout.opacity = 0
-            self.relatorio_button.text = "Relatório"
-            self.detailed_results_visible = False
-
+        # Always generate report (no toggle behavior)
+        self.show_loading_report()
+        Clock.schedule_once(lambda dt: self._process_report_generation(), 0.1)
+        
     def _process_report_generation(self):
         """Process the report generation in background"""
         try:
@@ -480,8 +475,10 @@ class MyBoxLayout(FloatLayout):
             
             # Show the detailed results
             self.detailed_results_layout.opacity = 1
-            self.relatorio_button.text = "Ocultar Relatório"
             self.detailed_results_visible = True
+            
+            # Properly remove the report button after generating the report
+            self.remove_widget(self.relatorio_button)
             
         except Exception as e:
             # Handle errors in report generation
@@ -491,8 +488,10 @@ class MyBoxLayout(FloatLayout):
             self.medidas_label.text = f"[color=D32F2FFF]{error_message}[/color]"
             
             self.detailed_results_layout.opacity = 1
-            self.relatorio_button.text = "Ocultar Relatório"
             self.detailed_results_visible = True
+            
+            # Remove the report button even on error
+            self.remove_widget(self.relatorio_button)
         
         finally:
             # Hide loading screen
@@ -559,16 +558,21 @@ class MyBoxLayout(FloatLayout):
 
             aplicar_estilo_label(self.classificacao_label, classificacao, estilo)
 
-        # Show the report button after analysis is complete
-        self.relatorio_button.opacity = 1
+        # Re-add the report button after analysis is complete (in case it was removed)
+        if self.relatorio_button not in self.children:
+            self.add_widget(self.relatorio_button)
         
-        # Reset detailed results visibility
-        self.detailed_results_layout.opacity = 0
-        self.detailed_results_visible = False
+        # Reset button properties
+        self.relatorio_button.opacity = 1
+        self.relatorio_button.disabled = False
         self.relatorio_button.text = "Relatório"
         
+        # Hide detailed results from previous analysis
+        self.detailed_results_layout.opacity = 0
+        self.detailed_results_visible = False
+        
         Clock.schedule_once(lambda dt: self.finish_processing(instance), 0.2)
-
+        
     def finish_processing(self, button):
         self.hide_loading()
         self.reset_button_color(button)
