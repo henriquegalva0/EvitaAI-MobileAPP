@@ -19,9 +19,11 @@ If you're planning to use this app for business purposes, please contact us firs
 
 All the frameworks can be downloaded on the terminal with "pip install kivy openai"
 
-# Promts
+# Prompts
 The first promt will ask the LLM to analyse the "URL" and return only one word "confiável" or "malicioso".
-The second prompt will present an analysis based on the first LLM response.
+The second prompt will present an analysis based on the first LLM response returning a dictionary following the model:
+
+{'reputacao': reputation of the site's host, 'justificativa': the reason behind the judgment on the first prompt, 'seguranca': security recommendations}
 
 # License
 This project is licensed under the MIT License - see the [LICENSE](./LICENSE) file for details.
