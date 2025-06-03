@@ -29,7 +29,6 @@ except Exception:
     Intent = None
     print("Pyjnius e classes Android não disponíveis. Rodando em ambiente não-Android.")
 
-
 LabelBase.register(name='Roboto-Thin', fn_regular='fonts/Roboto-Thin.ttf')
 
 class LoadingSpinner(Widget):
@@ -949,11 +948,10 @@ class MyBoxLayout(FloatLayout):
         else:
             print("Não rodando no Android ou Pyjnius/Intent indisponível. Ignorando processamento de Intent.")
 
-
-class MyApp(App):
+class EvitaAIApp(App):
     def build(self):
-        self.title = "EvitaABC"
+        self.title = "EvitaAI"
         return MyBoxLayout()
 
 if __name__ == '__main__':
-    MyApp().run()
+    EvitaAIApp().run()

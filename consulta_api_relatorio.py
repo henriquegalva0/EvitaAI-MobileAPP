@@ -34,7 +34,7 @@ def consultar_analise_gpt_relatorio(site):
                 "role": "system",
                 "content": [{
                     "type": "input_text",
-                    "text": "Não insira nenhum hyperlink na sua resposta!!!!!"
+                    "text": "Não insira nenhum hyperlink na sua resposta!"
                     }]},
                 {
                 "role": "user",
