@@ -12,11 +12,23 @@ from kivy.core.text import LabelBase
 from kivy.uix.floatlayout import FloatLayout
 from kivy.uix.scrollview import ScrollView
 from kivy.core.window import Window
+
 import webbrowser
+import math
 
 from consulta_api_classficacao import classificacao_analise_gpt
 from consulta_api_relatorio import consultar_analise_gpt_relatorio
-import math
+
+try:
+    from jnius import autoclass
+    PythonActivity = autoclass('org.kivy.android.PythonActivity')
+    Intent = autoclass('android.content.Intent')
+except Exception:
+    # Se não estiver rodando no Android (ex: desenvolvimento no PC)
+    PythonActivity = None
+    Intent = None
+    print("Pyjnius e classes Android não disponíveis. Rodando em ambiente não-Android.")
+
 
 LabelBase.register(name='Roboto-Thin', fn_regular='fonts/Roboto-Thin.ttf')
 
@@ -181,7 +193,7 @@ class RoundedButton(ButtonBehavior, Label):
         self.text = kwargs.get("text", "Botão")
         self.size_hint_y = None
         self.font_name = 'Roboto-Thin'
-        self.color = (1, 1, 1, 1)
+        self.color = (1, 1, 1, 1)  # Changed to pure white text
         self.default_bg_color = (0.4, 0.6, 0.9, 0.3)  # Changed to transparent (0.3 alpha)
         self.current_bg_color = self.default_bg_color  # Track current background color
         self.border_color = (0.4, 0.6, 0.9, 0.8)  # More visible border color
@@ -326,18 +338,24 @@ class MyBoxLayout(FloatLayout):
 
         self.bind(size=self._update_bg_rect, pos=self._update_bg_rect)
         Window.bind(on_resize=self._update_responsive_layout)
-        
+
         self.size_hint = (1, 1)
         self.pos_hint = {'top': 1}
-        
+
         # Track if detailed results are visible and store last analyzed site
         self.detailed_results_visible = False
         self.last_analyzed_site = ""
         self.current_classification_color = None  # Track current classification color
         self.current_classification_rgb = None  # Track RGB values for classification color
+        self.report_button_visible = False  # Track if report button is visible
+        self.is_malicious = False  # Track if current site is malicious
+        self.report_generated = False  # Track if report has been generated
 
         self._create_widgets()
         self._update_responsive_layout()
+
+        # NOVO: Chame a função para processar a Intent de inicialização
+        Clock.schedule_once(self._process_initial_intent, 0) # Agenda para rodar no próximo frame
 
     def _create_widgets(self):
         # Top bar
@@ -431,12 +449,12 @@ class MyBoxLayout(FloatLayout):
         self.relatorio_button.opacity = 0
         self.add_widget(self.relatorio_button)
 
-        # Access site button (initially hidden)
+        # Access site button (initially hidden) - responsive positioning
         self.acessar_site_button = RoundedButton(
             text="Acessar Site",
             size_hint=(0.4, None)
         )
-        self.acessar_site_button.pos_hint = {'center_x': 0.5, 'top': 0.15}
+        # Initial position will be set in _update_responsive_layout
         self.acessar_site_button.bind(on_press=self.open_website)
         self.acessar_site_button.opacity = 0
         self.add_widget(self.acessar_site_button)
@@ -555,6 +573,28 @@ class MyBoxLayout(FloatLayout):
         medidas_box.add_widget(self.medidas_scroll)
         self.detailed_results_layout.add_widget(medidas_box)
 
+    def _calculate_access_button_position(self):
+        """Calculate the optimal position for the access button based on screen size and content"""
+        min_dimension = min(Window.width, Window.height)
+        
+        # Base position calculation
+        if self.detailed_results_visible:
+            # When detailed results are visible, position button below them with safe margin
+            detailed_results_bottom = self.detailed_results_layout.pos_hint['top'] - (self.detailed_results_layout.height / Window.height)
+            # Add a responsive margin based on screen size
+            margin = max(0.03, min_dimension * 0.00008)  # Responsive margin
+            button_top = max(0.08, detailed_results_bottom - margin)  # Minimum 8% from bottom
+        else:
+            # When no detailed results, use responsive positioning
+            if Window.height < 600:  # Small screens
+                button_top = 0.12
+            elif Window.height < 800:  # Medium screens
+                button_top = 0.10
+            else:  # Large screens
+                button_top = 0.08
+                
+        return button_top
+
     def _update_responsive_layout(self, *args):
         # Update responsive sizing for all elements
         min_dimension = min(Window.width, Window.height)
@@ -607,6 +647,18 @@ class MyBoxLayout(FloatLayout):
                 title.font_size = max(20, min_dimension * 0.028)
                 
                 scroll.height = box.height - title_height - box.spacing
+                
+        # Adjust positions when report button is hidden
+        if self.detailed_results_visible and not self.report_button_visible:
+            # Move detailed results up to fill the space
+            self.detailed_results_layout.pos_hint = {'center_x': 0.5, 'top': 0.48}
+        else:
+            # Default position
+            self.detailed_results_layout.pos_hint = {'center_x': 0.5, 'top': 0.4}
+            
+        # Update access button position responsively
+        access_button_top = self._calculate_access_button_position()
+        self.acessar_site_button.pos_hint = {'center_x': 0.5, 'top': access_button_top}
 
     def _hex_to_rgb(self, hex_color):
         """Convert hex color code to RGB tuple"""
@@ -632,11 +684,31 @@ class MyBoxLayout(FloatLayout):
         
         # Update both buttons
         self.relatorio_button.set_background_color(button_color)
-        self.acessar_site_button.set_background_color(button_color)
+        
+        # Only update access button color if it's not disabled due to malicious content
+        if not (self.is_malicious and not self.report_generated):
+            self.acessar_site_button.set_background_color(button_color)
+
+    def _update_access_button_state(self):
+        """Update the access button state based on malicious status and report generation"""
+        if self.is_malicious and not self.report_generated:
+            # Disable and grey out the button for malicious sites until report is generated
+            self.acessar_site_button.opacity = 0.5
+            self.acessar_site_button.disabled = True
+            self.acessar_site_button.set_background_color((0.5, 0.5, 0.5, 1))  # Grey color
+            self.acessar_site_button.color = (0.5, 0.5, 0.5, 1)  # Grey text
+        else:
+            # Enable the button for non-malicious sites or after report is generated
+            self.acessar_site_button.opacity = 1
+            self.acessar_site_button.disabled = False
+            self.acessar_site_button.color = (1, 1, 1, 1)  # White text color
+            # Update with proper classification color
+            if self.current_classification_color:
+                self._update_button_colors(self.current_classification_color)
 
     def open_website(self, instance):
         """Open the analyzed website in the default browser"""
-        if self.last_analyzed_site:
+        if self.last_analyzed_site and not instance.disabled:
             # Ensure URL has http/https prefix
             url = self.last_analyzed_site
             if not url.startswith(('http://', 'https://')):
@@ -670,11 +742,23 @@ class MyBoxLayout(FloatLayout):
             aplicar_estilo_relatorio(self.justificativa_label, relatorio_data.get('justificativa', 'Dados não disponíveis'), text_color)
             aplicar_estilo_relatorio(self.medidas_label, relatorio_data.get('seguranca', 'Dados não disponíveis'), text_color)
             
+            # Mark report as generated
+            self.report_generated = True
+            
+            # Update access button state (enable if it was disabled due to malicious content)
+            self._update_access_button_state()
+            
+            # REMOVE the report button completely (not just hide it)
+            self.remove_widget(self.relatorio_button)
+            self.report_button_visible = False
+            
+            # Show detailed results and adjust their position
             self.detailed_results_layout.opacity = 1
             self.detailed_results_visible = True
+            self.detailed_results_layout.pos_hint = {'center_x': 0.5, 'top': 0.48}
             
-            # Don't remove the report button anymore
-            # self.remove_widget(self.relatorio_button)
+            # Update access button position after showing detailed results
+            self._update_responsive_layout()
             
         except Exception as e:
             error_message = f"Erro ao gerar relatório: {str(e)}"
@@ -682,12 +766,24 @@ class MyBoxLayout(FloatLayout):
             self.justificativa_label.text = f"[color=D32F2FFF]Erro na consulta.\nTente novamente.[/color]"
             self.medidas_label.text = f"[color=D32F2FFF]Erro na consulta.\nTente novamente.[/color]"
             
+            # Mark report as generated even on error
+            self.report_generated = True
+            
+            # Update access button state
+            self._update_access_button_state()
+            
+            # REMOVE the report button completely (not just hide it)
+            self.remove_widget(self.relatorio_button)
+            self.report_button_visible = False
+            
+            # Show detailed results and adjust their position
             self.detailed_results_layout.opacity = 1
             self.detailed_results_visible = True
+            self.detailed_results_layout.pos_hint = {'center_x': 0.5, 'top': 0.48}
             
-            # Don't remove the report button anymore
-            # self.remove_widget(self.relatorio_button)
-        
+            # Update access button position after showing detailed results
+            self._update_responsive_layout()
+            
         finally:
             Clock.schedule_once(lambda dt: self.hide_loading_report(), 0.2)
 
@@ -706,7 +802,8 @@ class MyBoxLayout(FloatLayout):
         """Hide loading screen for report generation"""
         self.loading_overlay.opacity = 0
         self.loading_overlay.hide()
-        self.relatorio_button.disabled = False
+        if self.relatorio_button in self.children:
+            self.relatorio_button.disabled = False
 
     def show_loading(self):
         # Ensure loading overlay is on top by removing and re-adding it
@@ -734,6 +831,10 @@ class MyBoxLayout(FloatLayout):
         self.last_analyzed_site = site_input
         self.site_input.text = ""
 
+        # Reset states for new analysis
+        self.is_malicious = False
+        self.report_generated = False
+
         try:
             analise_gpt = classificacao_analise_gpt(site_input)
         except:
@@ -747,6 +848,16 @@ class MyBoxLayout(FloatLayout):
 
             aplicar_estilo_label(self.classificacao_label, "Erro na consulta", estilo_padrao)
             self.current_classification_color = None
+            
+            # Disable access site button when there's an error
+            self.acessar_site_button.opacity = 0.5
+            self.acessar_site_button.disabled = True
+            self.acessar_site_button.set_background_color((0.5, 0.5, 0.5, 1))  # Grey color
+            
+            # Don't show report button on error
+            if self.relatorio_button in self.children:
+                self.remove_widget(self.relatorio_button)
+            self.report_button_visible = False
         else:
             classificacao = analise_gpt.get('classificacao', 'Não disponível')
 
@@ -758,30 +869,45 @@ class MyBoxLayout(FloatLayout):
             estilo = cores_classificacao.get(classificacao.lower(), {"texto": "333333FF"})
             self.current_classification_color = estilo.get("texto", "333333FF")
 
+            # Check if the site is malicious
+            self.is_malicious = classificacao.lower() == "malicioso"
+
             def aplicar_estilo_label(label, texto, estilo):
                 cor_texto = estilo.get("texto", "333333FF")
                 label.text = f"[color={cor_texto}]{texto}[/color]"
 
             aplicar_estilo_label(self.classificacao_label, classificacao, estilo)
+            
+            # Create and add a new report button if it doesn't exist
+            if not self.report_button_visible:
+                # Create a new report button
+                self.relatorio_button = RoundedButton(
+                    text="Relatório",
+                    size_hint=(0.4, None)
+                )
+                self.relatorio_button.pos_hint = {'center_x': 0.5, 'top': 0.48}
+                self.relatorio_button.bind(on_press=self.generate_detailed_report)
+                self.add_widget(self.relatorio_button)
+                self.report_button_visible = True
 
         # Update button colors based on classification
-        self._update_button_colors(self.current_classification_color)
+        if self.current_classification_color:
+            self._update_button_colors(self.current_classification_color)
         
-        # Re-add the report button if it was removed
-        if self.relatorio_button not in self.children:
-            self.add_widget(self.relatorio_button)
-        
-        # Show the report button
-        self.relatorio_button.opacity = 1
-        self.relatorio_button.disabled = False
-        
-        # Show the access site button - always enable it regardless of report status
-        self.acessar_site_button.opacity = 1
-        self.acessar_site_button.disabled = False
+        # Show the access site button and update its state
+        if self.last_analyzed_site and not isinstance(analise_gpt, int):
+            self.acessar_site_button.opacity = 1
+            self._update_access_button_state()
         
         # Hide detailed results from previous analysis
         self.detailed_results_layout.opacity = 0
         self.detailed_results_visible = False
+        
+        # Reset detailed results position
+        self.detailed_results_layout.pos_hint = {'center_x': 0.5, 'top': 0.4}
+        
+        # Update layout to recalculate access button position
+        self._update_responsive_layout()
         
         Clock.schedule_once(lambda dt: self.finish_processing(instance), 0.2)
         
@@ -800,6 +926,29 @@ class MyBoxLayout(FloatLayout):
     def update_top_bar_bg(self, instance, value):
         self.top_bar_bg.pos = instance.pos
         self.top_bar_bg.size = instance.size
+
+    def _process_initial_intent(self, dt):
+        if PythonActivity and Intent:
+            current_activity = PythonActivity.mActivity
+            intent = current_activity.getIntent()
+            action = intent.getAction()
+
+            if action == Intent.ACTION_VIEW:
+                data_uri = intent.getData()
+                if data_uri:
+                    link_recebido = str(data_uri.toString())
+                    print(f"Link recebido via Intent: {link_recebido}") # Para depuração
+
+                    # Adiciona o link recebido ao seu site_input e dispara a análise
+                    self.site_input.text = link_recebido
+                    self.press(self.submit) # Chama o método 'press' como se o botão 'Analisar' tivesse sido clicado
+                else:
+                    print("Intent VIEW recebida, mas sem dados de URL.")
+            else:
+                print("Nenhuma Intent VIEW na inicialização.")
+        else:
+            print("Não rodando no Android ou Pyjnius/Intent indisponível. Ignorando processamento de Intent.")
+
 
 class MyApp(App):
     def build(self):

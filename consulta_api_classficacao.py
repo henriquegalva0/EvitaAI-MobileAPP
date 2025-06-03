@@ -71,7 +71,10 @@ def classificacao_analise_gpt(site):
 
         classificacao_retorno=tratamento_output_classificacao(resposta_classificacao_gpt)
 
-        if isinstance(classificacao_retorno, int):
-            return 0
+        if isinstance(classificacao_retorno, str):
+            if len(classificacao_retorno) < 10:
+                return {'classificacao':classificacao_retorno}
+            else:
+                return 0
         else:
-            return {'classificacao':classificacao_retorno}
+            return 0
