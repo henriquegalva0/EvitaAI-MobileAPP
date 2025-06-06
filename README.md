@@ -12,6 +12,9 @@ I'm building the APK with buildozer and pyjnius on Ubuntu 22.04.5 LTS - WSL2 (Wi
 # Missing Content
 Some json files in the folder "/misc" are empty for security reasons.
 
+# Missing Permissions
+The latest Android system has become quite strict regarding the permissions requested by apps. Currently, you need a license or must publish the app on the Google Play Store to use certain permissions.
+
 # Usage
 If you want to test the app, please use your own secret API key.
 
