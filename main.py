@@ -1,4 +1,3 @@
-import kivy
 from kivy.app import App
 from kivy.uix.label import Label
 from kivy.uix.boxlayout import BoxLayout
@@ -12,12 +11,15 @@ from kivy.core.text import LabelBase
 from kivy.uix.floatlayout import FloatLayout
 from kivy.uix.scrollview import ScrollView
 from kivy.core.window import Window
+from kivy.uix.slider import Slider
+from kivy.uix.popup import Popup
 
 import webbrowser
-import math
 
 from consulta_api_classficacao import classificacao_analise_gpt
 from consulta_api_relatorio import consultar_analise_gpt_relatorio
+
+LabelBase.register(name='Roboto-Thin', fn_regular='fonts/Roboto-Thin.ttf')
 
 try:
     from jnius import autoclass
@@ -29,7 +31,134 @@ except Exception:
     Intent = None
     print("Pyjnius e classes Android não disponíveis. Rodando em ambiente não-Android.")
 
-LabelBase.register(name='Roboto-Thin', fn_regular='fonts/Roboto-Thin.ttf')
+from jnius import autoclass, cast
+from android.permissions import request_permissions, Permission
+
+request_permissions([Permission.POST_NOTIFICATIONS])
+
+class AccessibilityButton(ButtonBehavior, Widget):
+    def __init__(self, **kwargs):
+        super().__init__(**kwargs)
+        self.size_hint = (None, None)
+        self.size = (60, 60)
+        
+        with self.canvas:
+            # Background circle with transparency
+            Color(0.4, 0.6, 0.9, 0.3)  # Blue with transparency
+            self.bg_circle = Ellipse(pos=self.pos, size=self.size)
+            
+            # Border circle
+            Color(0.4, 0.6, 0.9, 0.8)  # Less transparent border
+            self.border_line = Line(circle=(self.center_x, self.center_y, 30), width=2)
+        
+        # Add the "A" label
+        self.label = Label(
+            text="A",
+            font_size=30,
+            color=(0.4, 0.6, 0.9, 1),
+            pos=self.pos,
+            size=self.size,
+            font_name='Roboto-Thin'
+        )
+        self.add_widget(self.label)
+        
+        self.bind(pos=self._update_graphics, size=self._update_graphics)
+    
+    def _update_graphics(self, *args):
+        self.bg_circle.pos = self.pos
+        self.bg_circle.size = self.size
+        self.border_line.circle = (self.center_x, self.center_y, self.width/2)
+        self.label.pos = self.pos
+        self.label.size = self.size
+
+class AccessibilityPopup(Popup):
+    def __init__(self, main_layout, **kwargs):
+        super().__init__(**kwargs)
+        self.main_layout = main_layout
+        self.title = ""
+        self.size_hint = (0.8, 0.4)
+        self.pos_hint = {'center_x': 0.5, 'center_y': 0.5}
+        self.separator_height = 0
+        self.title_size = 0
+        self.background = ''
+        self.background_color = (0, 0, 0, 0)
+
+        # Main content layout
+        content = BoxLayout(orientation='vertical', padding=20, spacing=45)
+        
+        # Close button (X)
+        close_layout = BoxLayout(size_hint_y=None, height=40)
+        close_layout.add_widget(Widget())  # Spacer
+        close_btn = Label(
+            text="X",
+            size_hint=(None, None),
+            size=(40, 40),
+            font_size=40,
+            color=(0.9, 0.9, 0.9, 1)
+        )
+        close_btn.bind(on_touch_down=self._close_popup)
+        close_layout.add_widget(close_btn)
+        content.add_widget(close_layout)
+        
+        # Font size section
+        font_label = Label(
+            text="Tamanho da escrita",
+            size_hint_y=None,
+            height=40,
+            font_size=30,
+            color=(0.8, 0.8, 0.8, 1),
+            font_name='Roboto-Thin'
+        )
+        content.add_widget(font_label)
+        
+        # Font size slider
+        self.font_slider = Slider(
+            min=0.8,
+            max=2,
+            value=1.4,
+            size_hint_y=None,
+            height=40
+        )
+        self.font_slider.bind(value=self._on_font_size_change)
+        content.add_widget(self.font_slider)
+        
+        # Theme section
+        theme_label = Label(
+            text="Escolha o tema",
+            size_hint_y=None,
+            height=40,
+            font_size=30,
+            color=(0.8, 0.8, 0.8, 1),
+            font_name='Roboto-Thin'
+        )
+        content.add_widget(theme_label)
+        
+        # Theme buttons
+        theme_layout = BoxLayout(size_hint_y=None, height=50, spacing=10)
+        
+        self.dark_btn = RoundedButton(text="Escuro", size_hint_y=None, height=50)
+        self.dark_btn.bind(on_press=lambda x: self._set_theme('dark'))
+        
+        self.light_btn = RoundedButton(text="Claro", size_hint_y=None, height=50)
+        self.light_btn.bind(on_press=lambda x: self._set_theme('light'))
+        
+        theme_layout.add_widget(self.dark_btn)
+        theme_layout.add_widget(self.light_btn)
+        content.add_widget(theme_layout)
+        
+        self.content = content
+    
+    def _close_popup(self, instance, touch):
+        if instance.collide_point(*touch.pos):
+            self.dismiss()
+            return True
+        return False
+    
+    def _on_font_size_change(self, instance, value):
+        self.main_layout.set_font_scale(value)
+    
+    def _set_theme(self, theme):
+        self.main_layout.set_theme(theme)
 
 class LoadingSpinner(Widget):
     def __init__(self, **kwargs):
@@ -331,8 +460,38 @@ class MyBoxLayout(FloatLayout):
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
         
+        # Theme colors
+        self.light_theme = {
+            'bg_color': (0.94, 0.95, 0.96, 1),
+            'top_bar_color': (1, 1, 1, 1),
+            'input_bg_color': (1, 1, 1, 1),
+            'input_text_color': (0.2, 0.2, 0.2, 1),
+            'label_bg_color': (1, 1, 1, 1),
+            'label_text_color': (0.2, 0.2, 0.2, 1),
+            'title_text_color': (0.3, 0.3, 0.3, 1),
+            'button_bg_color': (0.4, 0.6, 0.9, 0.3),
+            'button_border_color': (0.4, 0.6, 0.9, 0.8),
+            'button_text_color': (1, 1, 1, 1)
+        }
+        
+        self.dark_theme = {
+            'bg_color': (0.14, 0.15, 0.31, 1),
+            'top_bar_color': (0.28, 0.32, 0.50, 1),  # Brighter than bg
+            'input_bg_color': (0.28, 0.32, 0.50, 1),
+            'input_text_color': (0.9, 0.9, 0.9, 1),  # Light text
+            'label_bg_color': (0.28, 0.32, 0.50, 1),  # Brighter than bg
+            'label_text_color': (0.9, 0.9, 0.9, 1),  # Light text
+            'title_text_color': (0.8, 0.8, 0.8, 1),  # Light text
+            'button_bg_color': (0.5, 0.7, 1.0, 0.4),  # Lighter button
+            'button_border_color': (0.5, 0.7, 1.0, 0.9),
+            'button_text_color': (1, 1, 1, 1)
+        }
+        
+        self.current_theme = 'light'
+        self.font_scale = 1.0
+        
         with self.canvas.before:
-            Color(0.94, 0.95, 0.96, 1)
+            Color(*self.light_theme['bg_color'])
             self.bg_rect = Rectangle(size_hint=(1, 1))
 
         self.bind(size=self._update_bg_rect, pos=self._update_bg_rect)
@@ -349,6 +508,8 @@ class MyBoxLayout(FloatLayout):
         self.report_button_visible = False  # Track if report button is visible
         self.is_malicious = False  # Track if current site is malicious
         self.report_generated = False  # Track if report has been generated
+        self.analysis_state = None  # Track analysis state: 'safe', 'malicious', 'error', None
+        self.access_button_visible = False  # Track if access button is visible
 
         self._create_widgets()
         self._update_responsive_layout()
@@ -365,7 +526,7 @@ class MyBoxLayout(FloatLayout):
         )
 
         with self.top_bar.canvas.before:
-            Color(1, 1, 1, 1)
+            Color(*self.light_theme['top_bar_color'])
             self.top_bar_bg = Rectangle(pos=self.top_bar.pos, size=self.top_bar.size)
 
         self.top_bar.bind(pos=self.update_top_bar_bg, size=self.update_top_bar_bg)
@@ -377,8 +538,30 @@ class MyBoxLayout(FloatLayout):
             keep_ratio=True
         )
 
+        # Add accessibility button to top bar
+        self.accessibility_btn = AccessibilityButton()
+        self.accessibility_btn.bind(on_press=self._show_accessibility_popup)
+        
+        # Add accessibility button to top bar with positioning
+        accessibility_container = BoxLayout(
+            orientation='horizontal',
+            size_hint=(None, 1),
+            width=Window.width * 0.07  # Adjust this value to control position
+        )
+        
+        # Add spacer to push button to the left
+        right_spacer = Widget(size_hint=(0.7, 1))
+        
+        self.accessibility_btn = AccessibilityButton()
+        self.accessibility_btn.pos_hint = {'center_y': 0.5}  # Centers vertically
+        self.accessibility_btn.bind(on_press=self._show_accessibility_popup)
+        # Add button and spacer to container
+        accessibility_container.add_widget(self.accessibility_btn)
+        accessibility_container.add_widget(right_spacer)
+        
         self.top_bar.add_widget(self.img)
-        self.top_bar.add_widget(Widget())
+        self.top_bar.add_widget(Widget())  # Flexible spacer
+        self.top_bar.add_widget(accessibility_container)
         self.add_widget(self.top_bar)
 
         # Input field
@@ -387,11 +570,11 @@ class MyBoxLayout(FloatLayout):
             size_hint=(0.85, None),
             hint_text=' Digite o URL do site... ',
             hint_text_color=(0.6, 0.6, 0.6, 1),
-            foreground_color=(0.2, 0.2, 0.2, 1),
+            foreground_color=self.light_theme['input_text_color'],
             selection_color=(0.4, 0.6, 0.9, 0.3),
             background_normal='',
             background_active='',
-            background_color=(1, 1, 1, 1),
+            background_color=self.light_theme['input_bg_color'],
             font_name='Roboto-Thin',
             halign='center'
         )
@@ -417,7 +600,7 @@ class MyBoxLayout(FloatLayout):
         self.classificacao_title = Label(
             text="CLASSIFICAÇÃO",
             font_name='Roboto-Thin',
-            color=(0.3, 0.3, 0.3, 1),
+            color=self.light_theme['title_text_color'],
             size_hint_y=None,
             halign='center',
             valign='middle'
@@ -438,26 +621,6 @@ class MyBoxLayout(FloatLayout):
         self.classificacao_box.add_widget(self.classificacao_scroll)
         self.add_widget(self.classificacao_box)
 
-        # Report button
-        self.relatorio_button = RoundedButton(
-            text="Relatório",
-            size_hint=(0.4, None)
-        )
-        self.relatorio_button.pos_hint = {'center_x': 0.5, 'top': 0.48}
-        self.relatorio_button.bind(on_press=self.generate_detailed_report)
-        self.relatorio_button.opacity = 0
-        self.add_widget(self.relatorio_button)
-
-        # Access site button (initially hidden) - responsive positioning
-        self.acessar_site_button = RoundedButton(
-            text="Acessar Site",
-            size_hint=(0.4, None)
-        )
-        # Initial position will be set in _update_responsive_layout
-        self.acessar_site_button.bind(on_press=self.open_website)
-        self.acessar_site_button.opacity = 0
-        self.add_widget(self.acessar_site_button)
-
         # Detailed results layout
         self.detailed_results_layout = BoxLayout(
             orientation='horizontal',
@@ -475,6 +638,152 @@ class MyBoxLayout(FloatLayout):
         self.loading_overlay.opacity = 0
         self.add_widget(self.loading_overlay)
 
+    def _show_accessibility_popup(self, instance):
+        popup = AccessibilityPopup(self)
+        popup.open()
+
+    def set_font_scale(self, scale):
+        """Set font scale for all text elements"""
+        self.font_scale = scale
+        self._apply_font_scale()
+
+    def _apply_font_scale(self):
+        """Apply font scale to all text elements"""
+        # Update input field
+        base_font_size = max(14, min(Window.width, Window.height) * 0.025)
+        self.site_input.font_size = base_font_size * self.font_scale
+        
+        # Update classification title
+        base_title_size = max(22, min(Window.width, Window.height) * 0.031)
+        self.classificacao_title.font_size = base_title_size * self.font_scale
+        
+        # Update submit button
+        if hasattr(self.submit, 'font_size'):
+            base_button_size = max(20, min(Window.width, Window.height) * 0.031)
+            self.submit.font_size = base_button_size * self.font_scale
+        
+        # Update report button if it exists
+        if hasattr(self, 'relatorio_button') and self.relatorio_button in self.children:
+            base_button_size = max(20, min(Window.width, Window.height) * 0.031)
+            self.relatorio_button.font_size = base_button_size * self.font_scale
+        
+        # Update access button if it exists
+        if hasattr(self, 'acessar_site_button') and self.acessar_site_button in self.children:
+            base_button_size = max(20, min(Window.width, Window.height) * 0.031)
+            self.acessar_site_button.font_size = base_button_size * self.font_scale
+        
+        # Update labels
+        for widget in [self.classificacao_label, self.dominio_label, self.justificativa_label, self.medidas_label]:
+            if hasattr(widget, 'font_size'):
+                base_label_size = max(15, min(Window.width, Window.height) * 0.025)
+                widget.font_size = base_label_size * self.font_scale
+        
+        # Update detail titles
+        for title in [self.dominio_title, self.justificativa_title, self.medidas_title]:
+            base_detail_title_size = max(20, min(Window.width, Window.height) * 0.028)
+            title.font_size = base_detail_title_size * self.font_scale
+
+    def set_theme(self, theme_name):
+        """Set the app theme"""
+        self.current_theme = theme_name
+        theme = self.dark_theme if theme_name == 'dark' else self.light_theme
+        
+        # Update background
+        self.canvas.before.clear()
+        with self.canvas.before:
+            Color(*theme['bg_color'])
+            self.bg_rect = Rectangle(pos=self.pos, size=self.size)
+        
+        # Update top bar
+        self.top_bar.canvas.before.clear()
+        with self.top_bar.canvas.before:
+            Color(*theme['top_bar_color'])
+            self.top_bar_bg = Rectangle(pos=self.top_bar.pos, size=self.top_bar.size)
+        
+        # Update input field
+        self.site_input.background_color = theme['input_bg_color']
+        self.site_input.foreground_color = theme['input_text_color']
+        
+        # Update classification title
+        self.classificacao_title.color = theme['title_text_color']
+        
+        # Update labels background and text color
+        for label in [self.classificacao_label, self.dominio_label, self.justificativa_label, self.medidas_label]:
+            label.canvas.before.clear()
+            with label.canvas.before:
+                Color(*theme['label_bg_color'])
+                label.rect = RoundedRectangle(pos=label.pos, size=label.size, radius=label.radius)
+            label.color = theme['label_text_color']
+        
+        # Update detail titles
+        for title in [self.dominio_title, self.justificativa_title, self.medidas_title]:
+            title.color = theme['title_text_color']
+        
+        # Update buttons based on analysis state - only if analysis has been performed
+        if self.analysis_state is not None:
+            self._update_all_button_colors()
+        else:
+            # Only update submit button if no analysis has been performed
+            self.submit.set_background_color(theme['button_bg_color'][:3] + (1,))
+            self.submit.color = theme['button_text_color']
+
+    def _update_all_button_colors(self):
+        """Update all button colors based on current analysis state and theme"""
+        theme = self.dark_theme if self.current_theme == 'dark' else self.light_theme
+        
+        # Update submit button
+        self.submit.set_background_color(theme['button_bg_color'][:3] + (1,))
+        self.submit.color = theme['button_text_color']
+        
+        # Update analysis-specific buttons based on state
+        if self.analysis_state == 'safe':
+            # Green color for safe sites - much lighter for dark theme
+            if self.current_theme == 'dark':
+                button_color = (0.5, 0.9, 0.5, 1)  # Much lighter green for dark theme
+            else:
+                button_color = (0.18, 0.49, 0.20, 1)  # Original green for light theme
+        elif self.analysis_state == 'malicious':
+            # Red color for malicious sites - much lighter for dark theme
+            if self.current_theme == 'dark':
+                button_color = (1.0, 0.5, 0.5, 1)  # Much lighter red for dark theme
+            else:
+                button_color = (0.83, 0.18, 0.18, 1)  # Original red for light theme
+        elif self.analysis_state == 'error':
+            # Red color for error state - much lighter for dark theme
+            if self.current_theme == 'dark':
+                button_color = (1.0, 0.5, 0.5, 1)  # Much lighter red for dark theme
+            else:
+                button_color = (0.83, 0.18, 0.18, 1)  # Original red for light theme
+        else:
+            # Default blue color
+            button_color = theme['button_bg_color'][:3] + (1,)
+        
+        # Update report button if it exists
+        if hasattr(self, 'relatorio_button') and self.relatorio_button in self.children:
+            self.relatorio_button.set_background_color(button_color)
+            self.relatorio_button.color = theme['button_text_color']
+        
+        # Update access button if it exists
+        if hasattr(self, 'acessar_site_button') and self.acessar_site_button in self.children:
+            if self.analysis_state == 'error':
+                # Red color for error, but keep it functional
+                self.acessar_site_button.set_background_color(button_color)
+                self.acessar_site_button.color = theme['button_text_color']
+                self.acessar_site_button.opacity = 1
+                self.acessar_site_button.disabled = False
+            elif self.is_malicious and not self.report_generated:
+                # Grey out for malicious sites until report is generated
+                self.acessar_site_button.set_background_color((0.5, 0.5, 0.5, 1))
+                self.acessar_site_button.color = (0.5, 0.5, 0.5, 1)
+                self.acessar_site_button.opacity = 0.5
+                self.acessar_site_button.disabled = True
+            else:
+                # Normal state
+                self.acessar_site_button.set_background_color(button_color)
+                self.acessar_site_button.color = theme['button_text_color']
+                self.acessar_site_button.opacity = 1
+                self.acessar_site_button.disabled = False
+
     def _create_detail_boxes(self):
         # Domain box
         dominio_box = BoxLayout(
@@ -484,7 +793,7 @@ class MyBoxLayout(FloatLayout):
         )
 
         self.dominio_title = Label(
-            text="DOMÍNIO",
+            text="NOME",
             font_name='Roboto-Thin',
             color=(0.3, 0.3, 0.3, 1),
             size_hint_y=None,
@@ -548,7 +857,7 @@ class MyBoxLayout(FloatLayout):
         )
 
         self.medidas_title = Label(
-            text="SEGURANÇA",
+            text="DICAS",
             font_name='Roboto-Thin',
             color=(0.3, 0.3, 0.3, 1),
             size_hint_y=None,
@@ -605,9 +914,9 @@ class MyBoxLayout(FloatLayout):
         self.img.width = max(120, Window.width * 0.15)
         
         # Input field - increased font size by 25%
-        input_height = max(50, min_dimension * 0.075)
+        input_height = max(100, min_dimension * 0.075)
         self.site_input.height = input_height
-        self.site_input.font_size = max(18, min_dimension * 0.025)
+        self.site_input.font_size = max(18, min_dimension * 0.025) * self.font_scale
         self.site_input.padding = [max(15, Window.width * 0.02), input_height * 0.3]
         
         # Classification box
@@ -618,7 +927,7 @@ class MyBoxLayout(FloatLayout):
         # Classification title - increased font size by 25%
         title_height = max(30, Window.height * 0.05)
         self.classificacao_title.height = title_height
-        self.classificacao_title.font_size = max(22, min_dimension * 0.031)
+        self.classificacao_title.font_size = max(22, min_dimension * 0.031) * self.font_scale
         
         # Classification scroll
         scroll_height = classification_height - title_height - self.classificacao_box.spacing
@@ -643,7 +952,7 @@ class MyBoxLayout(FloatLayout):
                 # Increased title font size by 25%
                 title_height = max(25, Window.height * 0.038)
                 title.height = title_height
-                title.font_size = max(20, min_dimension * 0.028)
+                title.font_size = max(20, min_dimension * 0.028) * self.font_scale
                 
                 scroll.height = box.height - title_height - box.spacing
                 
@@ -655,9 +964,13 @@ class MyBoxLayout(FloatLayout):
             # Default position
             self.detailed_results_layout.pos_hint = {'center_x': 0.5, 'top': 0.4}
             
-        # Update access button position responsively
-        access_button_top = self._calculate_access_button_position()
-        self.acessar_site_button.pos_hint = {'center_x': 0.5, 'top': access_button_top}
+        # Update access button position if it exists
+        if hasattr(self, 'acessar_site_button') and self.acessar_site_button in self.children:
+            access_button_top = self._calculate_access_button_position()
+            self.acessar_site_button.pos_hint = {'center_x': 0.5, 'top': access_button_top}
+        
+        # Apply font scale
+        self._apply_font_scale()
 
     def _hex_to_rgb(self, hex_color):
         """Convert hex color code to RGB tuple"""
@@ -669,41 +982,20 @@ class MyBoxLayout(FloatLayout):
             return (r, g, b, a)
         return (0.4, 0.6, 0.9, 1)  # Default blue if conversion fails
 
-    def _update_button_colors(self, classification_color):
-        """Update button colors based on classification"""
-        if classification_color == "2E7D32FF":  # Green for confiável
-            button_color = (0.18, 0.49, 0.20, 1)  # Green background
-        elif classification_color == "D32F2FFF":  # Red for malicioso
-            button_color = (0.83, 0.18, 0.18, 1)  # Red background
+    def _get_theme_adjusted_color(self, classification_color):
+        """Get theme-adjusted color for report text"""
+        if classification_color == "43A047FF":  # Green for confiável
+            if self.current_theme == 'dark':
+                return "81C784FF"  # Much lighter green for dark theme
+            else:
+                return "43A047FF"  # Original green for light theme
+        elif classification_color == "E53935FF":  # Red for malicioso
+            if self.current_theme == 'dark':
+                return "EF5350FF"  # Much lighter red for dark theme
+            else:
+                return "E53935FF"  # Original red for light theme
         else:
-            button_color = (0.4, 0.6, 0.9, 1)  # Default blue
-            
-        # Store RGB values for report text
-        self.current_classification_rgb = button_color
-        
-        # Update both buttons
-        self.relatorio_button.set_background_color(button_color)
-        
-        # Only update access button color if it's not disabled due to malicious content
-        if not (self.is_malicious and not self.report_generated):
-            self.acessar_site_button.set_background_color(button_color)
-
-    def _update_access_button_state(self):
-        """Update the access button state based on malicious status and report generation"""
-        if self.is_malicious and not self.report_generated:
-            # Disable and grey out the button for malicious sites until report is generated
-            self.acessar_site_button.opacity = 0.5
-            self.acessar_site_button.disabled = True
-            self.acessar_site_button.set_background_color((0.5, 0.5, 0.5, 1))  # Grey color
-            self.acessar_site_button.color = (0.5, 0.5, 0.5, 1)  # Grey text
-        else:
-            # Enable the button for non-malicious sites or after report is generated
-            self.acessar_site_button.opacity = 1
-            self.acessar_site_button.disabled = False
-            self.acessar_site_button.color = (1, 1, 1, 1)  # White text color
-            # Update with proper classification color
-            if self.current_classification_color:
-                self._update_button_colors(self.current_classification_color)
+            return "333333FF"  # Default dark gray
 
     def open_website(self, instance):
         """Open the analyzed website in the default browser"""
@@ -726,13 +1018,8 @@ class MyBoxLayout(FloatLayout):
         try:
             relatorio_data = consultar_analise_gpt_relatorio(self.last_analyzed_site)
             
-            # Use the current classification color for report text
-            if self.current_classification_color == "2E7D32FF":  # Green for confiável
-                text_color = "2E7D32FF"  # Green text
-            elif self.current_classification_color == "D32F2FFF":  # Red for malicioso
-                text_color = "D32F2FFF"  # Red text
-            else:
-                text_color = "333333FF"  # Default dark gray
+            # Use theme-adjusted colors for report text
+            text_color = self._get_theme_adjusted_color(self.current_classification_color)
             
             def aplicar_estilo_relatorio(label, texto, cor):
                 label.text = f"[color={cor}]{texto}[/color]"
@@ -745,10 +1032,11 @@ class MyBoxLayout(FloatLayout):
             self.report_generated = True
             
             # Update access button state (enable if it was disabled due to malicious content)
-            self._update_access_button_state()
+            self._update_all_button_colors()
             
             # REMOVE the report button completely (not just hide it)
-            self.remove_widget(self.relatorio_button)
+            if hasattr(self, 'relatorio_button') and self.relatorio_button in self.children:
+                self.remove_widget(self.relatorio_button)
             self.report_button_visible = False
             
             # Show detailed results and adjust their position
@@ -761,18 +1049,20 @@ class MyBoxLayout(FloatLayout):
             
         except Exception as e:
             error_message = f"Erro ao gerar relatório: {str(e)}"
-            self.dominio_label.text = f"[color=D32F2FFF]Erro na consulta.\nTente novamente.[/color]"
-            self.justificativa_label.text = f"[color=D32F2FFF]Erro na consulta.\nTente novamente.[/color]"
-            self.medidas_label.text = f"[color=D32F2FFF]Erro na consulta.\nTente novamente.[/color]"
+            error_color = self._get_theme_adjusted_color("E53935FF")  # Use theme-adjusted red
+            self.dominio_label.text = f"[color={error_color}]Erro na consulta.\nTente novamente.[/color]"
+            self.justificativa_label.text = f"[color={error_color}]Erro na consulta.\nTente novamente.[/color]"
+            self.medidas_label.text = f"[color={error_color}]Erro na consulta.\nTente novamente.[/color]"
             
             # Mark report as generated even on error
             self.report_generated = True
             
             # Update access button state
-            self._update_access_button_state()
+            self._update_all_button_colors()
             
             # REMOVE the report button completely (not just hide it)
-            self.remove_widget(self.relatorio_button)
+            if hasattr(self, 'relatorio_button') and self.relatorio_button in self.children:
+                self.remove_widget(self.relatorio_button)
             self.report_button_visible = False
             
             # Show detailed results and adjust their position
@@ -795,13 +1085,14 @@ class MyBoxLayout(FloatLayout):
         
         self.loading_overlay.opacity = 1
         self.loading_overlay.show("Gerando relatório...")
-        self.relatorio_button.disabled = True
+        if hasattr(self, 'relatorio_button') and self.relatorio_button in self.children:
+            self.relatorio_button.disabled = True
 
     def hide_loading_report(self):
         """Hide loading screen for report generation"""
         self.loading_overlay.opacity = 0
         self.loading_overlay.hide()
-        if self.relatorio_button in self.children:
+        if hasattr(self, 'relatorio_button') and self.relatorio_button in self.children:
             self.relatorio_button.disabled = False
 
     def show_loading(self):
@@ -833,6 +1124,7 @@ class MyBoxLayout(FloatLayout):
         # Reset states for new analysis
         self.is_malicious = False
         self.report_generated = False
+        self.analysis_state = None
 
         try:
             analise_gpt = classificacao_analise_gpt(site_input)
@@ -847,22 +1139,18 @@ class MyBoxLayout(FloatLayout):
 
             aplicar_estilo_label(self.classificacao_label, "Erro na consulta", estilo_padrao)
             self.current_classification_color = None
-            
-            # Disable access site button when there's an error
-            self.acessar_site_button.opacity = 0.5
-            self.acessar_site_button.disabled = True
-            self.acessar_site_button.set_background_color((0.5, 0.5, 0.5, 1))  # Grey color
+            self.analysis_state = 'error'
             
             # Don't show report button on error
-            if self.relatorio_button in self.children:
+            if hasattr(self, 'relatorio_button') and self.relatorio_button in self.children:
                 self.remove_widget(self.relatorio_button)
             self.report_button_visible = False
         else:
             classificacao = analise_gpt.get('classificacao', 'Não disponível')
 
             cores_classificacao = {
-                "confiável": {"texto": "2E7D32FF"},
-                "malicioso": {"texto": "D32F2FFF"}
+                "confiável": {"texto": "43A047FF"},
+                "malicioso": {"texto": "E53935FF"}
             }
 
             estilo = cores_classificacao.get(classificacao.lower(), {"texto": "333333FF"})
@@ -870,6 +1158,14 @@ class MyBoxLayout(FloatLayout):
 
             # Check if the site is malicious
             self.is_malicious = classificacao.lower() == "malicioso"
+            
+            # Set analysis state
+            if classificacao.lower() == "confiável":
+                self.analysis_state = 'safe'
+            elif classificacao.lower() == "malicioso":
+                self.analysis_state = 'malicious'
+            else:
+                self.analysis_state = None
 
             def aplicar_estilo_label(label, texto, estilo):
                 cor_texto = estilo.get("texto", "333333FF")
@@ -877,7 +1173,7 @@ class MyBoxLayout(FloatLayout):
 
             aplicar_estilo_label(self.classificacao_label, classificacao, estilo)
             
-            # Create and add a new report button if it doesn't exist
+            # Create and add a new report button ONLY after analysis
             if not self.report_button_visible:
                 # Create a new report button
                 self.relatorio_button = RoundedButton(
@@ -889,14 +1185,22 @@ class MyBoxLayout(FloatLayout):
                 self.add_widget(self.relatorio_button)
                 self.report_button_visible = True
 
-        # Update button colors based on classification
-        if self.current_classification_color:
-            self._update_button_colors(self.current_classification_color)
+        # Create and add access site button ONLY after analysis
+        if not self.access_button_visible:
+            self.acessar_site_button = RoundedButton(
+                text="Acessar Site",
+                size_hint=(0.4, None)
+            )
+            self.acessar_site_button.bind(on_press=self.open_website)
+            self.add_widget(self.acessar_site_button)
+            self.access_button_visible = True
+
+        # Update all button colors based on analysis state
+        self._update_all_button_colors()
         
-        # Show the access site button and update its state
-        if self.last_analyzed_site and not isinstance(analise_gpt, int):
+        # Show the access site button
+        if self.last_analyzed_site:
             self.acessar_site_button.opacity = 1
-            self._update_access_button_state()
         
         # Hide detailed results from previous analysis
         self.detailed_results_layout.opacity = 0
@@ -947,6 +1251,10 @@ class MyBoxLayout(FloatLayout):
                 print("Nenhuma Intent VIEW na inicialização.")
         else:
             print("Não rodando no Android ou Pyjnius/Intent indisponível. Ignorando processamento de Intent.")
+
+    def on_kv_post(self, base_widget):
+        super().on_kv_post(base_widget)
+        Clock.schedule_once(self._process_initial_intent, 0)
 
 class EvitaAIApp(App):
     def build(self):

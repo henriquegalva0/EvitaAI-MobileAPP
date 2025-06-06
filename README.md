@@ -15,7 +15,7 @@ Some files in the folder "/misc" are empty for security reasons.
 # Usage
 If you want to test the app, please use your own secret API key.
 
-The app uses approximately 1000 tokens per analysis, which can make publishing, saving, and distributing results more challenging.
+The app uses approximately 1500 tokens per analysis, which can make publishing, saving, and distributing results more challenging.
 If you're planning to use this app for business purposes, please contact us first at henriquegasil@gmail.com.
 
 All the frameworks can be downloaded on the terminal with:
