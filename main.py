@@ -31,11 +31,16 @@ except Exception:
     Intent = None
     print("Pyjnius e classes Android não disponíveis. Rodando em ambiente não-Android.")
 
+from jnius import autoclass, cast
+from android.permissions import request_permissions, Permission
+
+request_permissions([Permission.POST_NOTIFICATIONS])
+
 class AccessibilityButton(ButtonBehavior, Widget):
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
         self.size_hint = (None, None)
-        self.size = (45, 45)
+        self.size = (60, 60)
         
         with self.canvas:
             # Background circle with transparency
@@ -49,7 +54,7 @@ class AccessibilityButton(ButtonBehavior, Widget):
         # Add the "A" label
         self.label = Label(
             text="A",
-            font_size=24,
+            font_size=30,
             color=(0.4, 0.6, 0.9, 1),
             pos=self.pos,
             size=self.size,
@@ -645,7 +650,7 @@ class MyBoxLayout(FloatLayout):
     def _apply_font_scale(self):
         """Apply font scale to all text elements"""
         # Update input field
-        base_font_size = max(18, min(Window.width, Window.height) * 0.025)
+        base_font_size = max(14, min(Window.width, Window.height) * 0.025)
         self.site_input.font_size = base_font_size * self.font_scale
         
         # Update classification title
@@ -788,7 +793,7 @@ class MyBoxLayout(FloatLayout):
         )
 
         self.dominio_title = Label(
-            text="DOMÍNIO",
+            text="NOME",
             font_name='Roboto-Thin',
             color=(0.3, 0.3, 0.3, 1),
             size_hint_y=None,
@@ -852,7 +857,7 @@ class MyBoxLayout(FloatLayout):
         )
 
         self.medidas_title = Label(
-            text="SEGURANÇA",
+            text="DICAS",
             font_name='Roboto-Thin',
             color=(0.3, 0.3, 0.3, 1),
             size_hint_y=None,
@@ -909,7 +914,7 @@ class MyBoxLayout(FloatLayout):
         self.img.width = max(120, Window.width * 0.15)
         
         # Input field - increased font size by 25%
-        input_height = max(50, min_dimension * 0.075)
+        input_height = max(100, min_dimension * 0.075)
         self.site_input.height = input_height
         self.site_input.font_size = max(18, min_dimension * 0.025) * self.font_scale
         self.site_input.padding = [max(15, Window.width * 0.02), input_height * 0.3]
