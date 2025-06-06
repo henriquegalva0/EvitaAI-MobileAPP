@@ -6,7 +6,12 @@ import android.app.Notification;
 import android.app.NotificationChannel;
 import android.app.NotificationManager;
 import android.content.Context;
+import android.content.Intent;
 import android.os.Build;
+import android.provider.Settings;
+import android.net.Uri;
+import android.app.AppOpsManager;
+import android.content.pm.ApplicationInfo;
 
 public class MyAccessibilityService extends AccessibilityService {
 
@@ -16,7 +21,12 @@ public class MyAccessibilityService extends AccessibilityService {
             CharSequence content = event.getText().toString();
 
             if (content != null && content.toString().contains("http")) {
-                showNotification("Link detectado: " + content.toString());
+                // Verifica se as notificações estão habilitadas
+                if (!areNotificationsEnabled()) {
+                    openNotificationSettings();
+                } else {
+                    showNotification("Link detectado: " + content.toString());
+                }
             }
         }
     }
@@ -49,5 +59,24 @@ public class MyAccessibilityService extends AccessibilityService {
         }
 
         notificationManager.notify(1, builder.build());
+    }
+
+    private boolean areNotificationsEnabled() {
+        NotificationManager notificationManager =
+                (NotificationManager) getSystemService(Context.NOTIFICATION_SERVICE);
+
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
+            return notificationManager.areNotificationsEnabled();
+        }
+
+        // Para versões mais antigas, assume que está ativado
+        return true;
+    }
+
+    private void openNotificationSettings() {
+        Intent intent = new Intent(Settings.ACTION_APP_NOTIFICATION_SETTINGS);
+        intent.putExtra(Settings.EXTRA_APP_PACKAGE, getPackageName());
+        intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+        startActivity(intent);
     }
 }
